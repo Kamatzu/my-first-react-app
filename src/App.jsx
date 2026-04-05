@@ -1,9 +1,26 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 
 function App() {
   const [messages, setMessages] = useState([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
+
+
+  useEffect(() => {
+  async function loadMessages() {
+    try {
+      const response = await fetch(`${import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001'}/api/messages`)
+      const data = await response.json()
+      setMessages(data.map(msg => ({
+        role: msg.role,
+        content: msg.content
+      })))
+    } catch (error) {
+      console.error('Error loading messages:', error)
+    }
+  }
+  loadMessages()
+}, [])
 
   async function sendMessage() {
     if (!input.trim()) return
