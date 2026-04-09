@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { supabase } from './supabase'
 
 const BACKEND = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001'
 
@@ -6,22 +7,33 @@ function App() {
   const [messages, setMessages] = useState([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
-  const [token, setToken] = useState(localStorage.getItem('token'))
-  const [email, setEmail] = useState(localStorage.getItem('email') || '')
+  const [session, setSession] = useState(null)
   const [authEmail, setAuthEmail] = useState('')
   const [authPassword, setAuthPassword] = useState('')
   const [authError, setAuthError] = useState('')
   const [isRegistering, setIsRegistering] = useState(false)
 
   useEffect(() => {
-    if (!token) return
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session)
+    })
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session)
+    })
+
+    return () => subscription.unsubscribe()
+  }, [])
+
+  useEffect(() => {
+    if (!session) return
     async function loadMessages() {
       try {
         const response = await fetch(`${BACKEND}/api/messages`, {
-          headers: { 'Authorization': `Bearer ${token}` }
+          headers: { 'Authorization': `Bearer ${session.access_token}` }
         })
         if (response.status === 401) {
-          logout()
+          await supabase.auth.signOut()
           return
         }
         const data = await response.json()
@@ -31,36 +43,25 @@ function App() {
       }
     }
     loadMessages()
-  }, [token])
+  }, [session])
 
   async function handleAuth() {
     setAuthError('')
-    const endpoint = isRegistering ? '/api/auth/register' : '/api/auth/login'
     try {
-      const response = await fetch(`${BACKEND}${endpoint}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: authEmail, password: authPassword })
-      })
-      const data = await response.json()
-      if (!response.ok) {
-        setAuthError(data.error)
-        return
+      if (isRegistering) {
+        const { error } = await supabase.auth.signUp({ email: authEmail, password: authPassword })
+        if (error) setAuthError(error.message)
+      } else {
+        const { error } = await supabase.auth.signInWithPassword({ email: authEmail, password: authPassword })
+        if (error) setAuthError(error.message)
       }
-      localStorage.setItem('token', data.token)
-      localStorage.setItem('email', data.email)
-      setToken(data.token)
-      setEmail(data.email)
     } catch (error) {
       setAuthError('Something went wrong')
     }
   }
 
-  function logout() {
-    localStorage.removeItem('token')
-    localStorage.removeItem('email')
-    setToken(null)
-    setEmail('')
+  async function logout() {
+    await supabase.auth.signOut()
     setMessages([])
   }
 
@@ -77,7 +78,7 @@ function App() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
+          'Authorization': `Bearer ${session.access_token}`
         },
         body: JSON.stringify({ messages: updatedMessages })
       })
@@ -95,7 +96,7 @@ function App() {
     if (e.key === 'Enter') sendMessage()
   }
 
-  if (!token) {
+  if (!session) {
     return (
       <div style={{ maxWidth: '400px', margin: '80px auto', fontFamily: 'sans-serif' }}>
         <h1>AI Assistant</h1>
@@ -138,7 +139,7 @@ function App() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <h1>AI Assistant</h1>
         <div>
-          <span style={{ marginRight: '12px', color: '#666' }}>{email}</span>
+          <span style={{ marginRight: '12px', color: '#666' }}>{session.user.email}</span>
           <button
             style={{ padding: '6px 12px', borderRadius: '8px', border: '1px solid #ccc', cursor: 'pointer' }}
             onClick={logout}
